@@ -127,6 +127,8 @@ public:
   TUNGraph(const TUNGraph& Graph) : MxNId(Graph.MxNId), NEdges(Graph.NEdges), NodeH(Graph.NodeH) { }
   /// Constructor that loads the graph from a (binary) stream SIn.
   TUNGraph(TSIn& SIn) : MxNId(SIn), NEdges(SIn), NodeH(SIn) { }
+  /// Constructor that loads the graph from a file stream FIn.
+  //TUNGraph(TFIn& FIn) : MxNId(FIn), NEdges(FIn), NodeH(FIn) { }
   /// Saves the graph to a (binary) stream SOut.
   void Save(TSOut& SOut) const { MxNId.Save(SOut); NEdges.Save(SOut); NodeH.Save(SOut); }
   /// Static constructor that returns a pointer to the graph. Call: PUNGraph Graph = TUNGraph::New().
@@ -134,7 +136,15 @@ public:
   /// Static constructor that returns a pointer to the graph and reserves enough memory for Nodes nodes and Edges edges. ##TUNGraph::New
   static PUNGraph New(const int& Nodes, const int& Edges) { return new TUNGraph(Nodes, Edges); }
   /// Static constructor that loads the graph from a stream SIn and returns a pointer to it.
-  static PUNGraph Load(TSIn& SIn) { return PUNGraph(new TUNGraph(SIn)); }
+  static PUNGraph Load(TSIn& SIn) {
+    PUNGraph Graph;
+    Graph = PUNGraph(new TUNGraph(SIn));
+    printf("C++ graph %s, nodes %d, edges %d, empty %s\n",
+      "TUNGraph::Load", Graph->GetNodes(), Graph->GetEdges(),
+      Graph->Empty() ? "yes" : "no");
+    return Graph;
+    //return PUNGraph(new TUNGraph(SIn));
+  }
   /// Allows for run-time checking the type of the graph (see the TGraphFlag for flags).
   bool HasFlag(const TGraphFlag& Flag) const;
   TUNGraph& operator = (const TUNGraph& Graph) {

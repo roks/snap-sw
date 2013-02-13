@@ -420,7 +420,9 @@ protected:
   /// Constructs the out of bounds error message.
   TStr GetXOutOfBoundsErrMsg(const TSizeTy& ValN) const;
 public:
-  TVec(): MxVals(0), Vals(0), ValT(NULL){}
+  TVec(): MxVals(0), Vals(0), ValT(NULL){
+    //printf("TVec0 Vals %d, MxVals %d\n", Vals, MxVals);
+  }
   TVec(const TVec<TVal, TSizeTy>& Vec);
   /// Constructs a vector (an array) of length \c _Vals.
   explicit TVec(const TSizeTy& _Vals){
@@ -429,7 +431,9 @@ public:
   /// Constructs a vector (an array) of length \c _Vals, while reserving enough memory to store \c _MxVals elements.
   TVec(const TSizeTy& _MxVals, const TSizeTy& _Vals){
     IAssert((0<=_Vals)&&(_Vals<=_MxVals)); MxVals=_MxVals; Vals=_Vals;
-    if (_MxVals==0){ValT=NULL;} else {ValT=new TVal[_MxVals];}}
+    if (_MxVals==0){ValT=NULL;} else {ValT=new TVal[_MxVals];}
+    //printf("TVec1 Vals %d, MxVals %d\n", Vals, MxVals);
+  }
   /// Constructs a vector of \c _Vals elements of memory array \c _ValT. ##TVec::TVec
   explicit TVec(TVal *_ValT, const TSizeTy& _Vals):
     MxVals(-1), Vals(_Vals), ValT(_ValT){}
@@ -437,6 +441,8 @@ public:
   explicit TVec(TSIn& SIn): MxVals(0), Vals(0), ValT(NULL){Load(SIn);}
   void Load(TSIn& SIn);
   void Save(TSOut& SOut) const;
+  int Send(int sd);
+  int WriteN(int fd, char *ptr, int nbytes);
   void LoadXml(const PXmlTok& XmlTok, const TStr& Nm="");
   void SaveXml(TSOut& SOut, const TStr& Nm) const;
   
@@ -459,6 +465,9 @@ public:
   /// Returns the memory footprint (the number of bytes) of the vector.
   TSizeTy GetMemUsed() const {
     return TSizeTy(2*sizeof(TSizeTy)+sizeof(TVal*)+MxVals*sizeof(TVal));}
+  /// Returns the memory size (the number of bytes) when saved.
+  TSizeTy GetMemSize() const {
+    return TSizeTy(2*sizeof(TVal)+sizeof(TSizeTy)*Vals);}
   
   /// Returns primary hash code of the vector. Used by \c THash.
   int GetPrimHashCd() const;
@@ -497,9 +506,14 @@ public:
   /// Tests whether the vector is empty. ##TVec::Empty
   bool Empty() const {return Vals==0;}
   /// Returns the number of elements in the vector. ##TVec::Len
-  TSizeTy Len() const {return Vals;}
+  TSizeTy Len() const {
+    //printf("Len   Vals %d, MxVals %d\n", Vals, MxVals);
+    return Vals;
+  }
   /// Returns the size of allocated storage capacity.
-  TSizeTy Reserved() const {return MxVals;}
+  TSizeTy Reserved() const {
+    printf("Reserved MxVals %d\n", MxVals);
+    return MxVals;}
   /// Returns a reference to the last element of the vector.
   const TVal& Last() const {return GetVal(Len()-1);}
   /// Returns a reference to the last element of the vector.
@@ -523,6 +537,7 @@ public:
     if (Vals==MxVals){Resize();} return Vals++;}
   /// Adds a new element at the end of the vector, after its current last element. ##TVec::Add1
   TSizeTy Add(const TVal& Val){ AssertR(MxVals!=-1, "This vector was obtained from TVecPool. Such vectors cannot change its size!");
+    //printf("Add   Vals %d, MxVals %d\n", Vals, MxVals);
     if (Vals==MxVals){Resize();} ValT[Vals]=Val; return Vals++;}
   /// Adds element \c Val at the end of the vector. #TVec::Add2
   TSizeTy Add(const TVal& Val, const TSizeTy& ResizeLen){ AssertR(MxVals!=-1, "This vector was obtained from TVecPool. Such vectors cannot change its size!");
@@ -680,7 +695,16 @@ public:
   /// Checks whether element \c Val is a member of the vector. ##TVec::IsInBin
   bool IsInBin(const TVal& Val) const {return SearchBin(Val)!=-1;}
   /// Returns reference to the first occurrence of element \c Val.
-  TVal& GetDat(const TVal& Val) const { return GetVal(SearchForw(Val));}
+  const TVal& GetDat(const TVal& Val) const { return GetVal(SearchForw(Val));}
+#if 0
+  TVal& GetDat(const TVal& Val) const {
+    TVal Val1;
+    Val1 = Val;
+    const TSizeTy ValN = SearchForw(Val1);
+    const TVal& Val2 = GetVal(ValN);
+    TVal& Val3 = Val2;
+    return Val2;}
+#endif
   /// Returns reference to the first occurrence of element \c Val. ##TVec::GetAddDat
   TVal& GetAddDat(const TVal& Val){ AssertR(MxVals!=-1, "This vector was obtained from TVecPool. Such vectors cannot change its size!");
     const TSizeTy ValN=SearchForw(Val); if (ValN==-1){Add(Val); return Last();} else {return GetVal(ValN);}}
@@ -719,6 +743,7 @@ public:
 template <class TVal, class TSizeTy>
 void TVec<TVal, TSizeTy>::Resize(const TSizeTy& _MxVals){
   IAssertR(MxVals!=-1, TStr::Fmt("Can not increase the capacity of the vector. %s. [Program failed to allocate more memory. Solution: Get a bigger machine and a 64-bit compiler.]", GetTypeNm(*this).CStr()).CStr());
+  //printf("resize\n");
   if (_MxVals==-1){
     if (Vals==0){MxVals=16;} else {MxVals*=2;}
   } else {
@@ -771,6 +796,45 @@ void TVec<TVal, TSizeTy>::Save(TSOut& SOut) const {
   if (MxVals!=-1){SOut.Save(MxVals);} else {SOut.Save(Vals);}
   SOut.Save(Vals);
   for (TSizeTy ValN=0; ValN<Vals; ValN++){ValT[ValN].Save(SOut);}
+}
+
+template <class TVal, class TSizeTy>
+int TVec<TVal, TSizeTy>::WriteN(int fd, char *ptr, int nbytes) {
+  int nleft;
+  int nwritten;
+
+  nleft = nbytes;
+  while (nleft > 0) {
+    nwritten = write(fd, ptr, nleft);
+    if (nwritten <= 0) {
+      return nwritten;
+    }
+    nleft -= nwritten;
+    ptr += nwritten;
+  }
+  return (nbytes-nleft);
+}
+
+template <class TVal, class TSizeTy>
+int TVec<TVal, TSizeTy>::Send(int sd) {
+  int l;
+  int n;
+  l = 0;
+  if (MxVals!=-1) {
+    l += WriteN(sd, (char *) &MxVals, (int) sizeof(TSizeTy));
+  } else {
+    l += WriteN(sd, (char *) &Vals, (int) sizeof(TSizeTy));
+  }
+  l += WriteN(sd, (char *) &Vals, (int) sizeof(TSizeTy));
+  for (TSizeTy ValN=0; ValN<Vals; ValN += 100000){
+    n = 100000;
+    if ((Vals - ValN) < 100000) {
+      n = Vals - ValN;
+    }
+    l += WriteN(sd, (char *) &ValT[ValN], (int) (n*sizeof(TVal)));
+  }
+
+  return l;
 }
 
 template <class TVal, class TSizeTy>
